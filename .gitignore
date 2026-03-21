@@ -4,3 +4,15 @@ Obj/
 Build/
 Logs/
 UserSettings/
+
+.vs/
+*.csproj
+*.sln
+*.user
+*.unityproj
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
