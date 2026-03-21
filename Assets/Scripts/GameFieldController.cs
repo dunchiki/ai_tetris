@@ -44,14 +44,60 @@ public class GameFieldController : MonoBehaviour
         new Color(1f,   0.5f, 0f),   // L オレンジ
     };
 
+    // 長押し用パラメータ
+    // 最初の入力から次の繰り返しまでの遅延(秒)
+    private const float DAS_DELAY  = 0.15f;
+    // 繰り返し間隔(秒)
+    private const float DAS_REPEAT = 0.05f;
+
+    private float dasTimerLeft, dasTimerRight, dasTimerDown;
+
     private void Update()
     {
-        if (Input.GetKeyDown(KeyCode.C))          SpawnRandomMino();
-        if (Input.GetKeyDown(KeyCode.F))          LockMino();
-        if (Input.GetKeyDown(KeyCode.LeftArrow))  MoveMino(-1, 0);
-        if (Input.GetKeyDown(KeyCode.RightArrow)) MoveMino( 1, 0);
-        if (Input.GetKeyDown(KeyCode.DownArrow))  MoveMino( 0, 1);
-        if (Input.GetKeyDown(KeyCode.UpArrow))    RotateMino();
+        // --- C: ランダムミノ生成 ---
+        if (Input.GetKeyDown(KeyCode.C)) SpawnRandomMino();
+
+        // --- F: 固定 ---
+        if (Input.GetKeyDown(KeyCode.F)) LockMino();
+
+        // --- W: ハードドロップ ---
+        if (Input.GetKeyDown(KeyCode.W)) HardDrop();
+
+        // --- Q: 反時計回り回転, E: 時計回り回転 ---
+        if (Input.GetKeyDown(KeyCode.Q)) RotateMino(clockwise: false);
+        if (Input.GetKeyDown(KeyCode.E)) RotateMino(clockwise: true);
+
+        // --- A: 左移動（長押し対応）---
+        HandleDAS(KeyCode.A, -1, 0, ref dasTimerLeft);
+
+        // --- D: 右移動（長押し対応）---
+        HandleDAS(KeyCode.D,  1, 0, ref dasTimerRight);
+
+        // --- S: 下移動（長押し対応）---
+        HandleDAS(KeyCode.S,  0, 1, ref dasTimerDown);
+    }
+
+    // DAS (Delayed Auto Shift): 初回 GetKeyDown で即反応、長押しで DAS_DELAY 後に DAS_REPEAT 間隔で繰り返す
+    private void HandleDAS(KeyCode key, int dx, int dy, ref float timer)
+    {
+        if (Input.GetKeyDown(key))
+        {
+            MoveMino(dx, dy);
+            timer = -DAS_DELAY;   // 初回遅延をタイマーにセット（負→0→繰り返し）
+        }
+        else if (Input.GetKey(key))
+        {
+            timer += Time.deltaTime;
+            while (timer >= 0f)
+            {
+                MoveMino(dx, dy);
+                timer -= DAS_REPEAT;
+            }
+        }
+        else
+        {
+            timer = -DAS_DELAY;   // キーが離されたらリセット
+        }
     }
 
     /// <summary>
@@ -95,7 +141,7 @@ public class GameFieldController : MonoBehaviour
 
     /// <summary>
     /// 操作中のテトリミノを移動する。dx: 横変位, dy: 縦変位（下が正）
-    /// 矢印キーで呼ばれる。
+    /// A/S/D キーで呼ばれる。
     /// </summary>
     public void MoveMino(int dx, int dy)
     {
@@ -110,17 +156,29 @@ public class GameFieldController : MonoBehaviour
     }
 
     /// <summary>
-    /// 操作中のテトリミノを時計回りに90度回転する。(↑ キー)
+    /// 操作中のテトリミノを回転する。clockwise=true で時計回り(E)、false で反時計回り(Q)。
     /// </summary>
-    public void RotateMino()
+    public void RotateMino(bool clockwise = true)
     {
         if (currentShape == null) return;
-        var rotated = RotateShape(currentShape);
+        var rotated = RotateShape(currentShape, clockwise);
         if (IsValidPosition(rotated, currentX, currentY))
         {
             currentShape = rotated;
             DrawCurrentMino();
         }
+    }
+
+    /// <summary>
+    /// ミノを最下部まで一気に落とす。(W キー)
+    /// </summary>
+    public void HardDrop()
+    {
+        if (currentShape == null) return;
+        while (IsValidPosition(currentShape, currentX, currentY + 1))
+            currentY++;
+        DrawCurrentMino();
+        LockMino();
     }
 
     /// <summary>
@@ -201,13 +259,21 @@ public class GameFieldController : MonoBehaviour
         return true;
     }
 
-    private static int[,] RotateShape(int[,] shape)
+    private static int[,] RotateShape(int[,] shape, bool isCw)
     {
         int rows = shape.GetLength(0), cols = shape.GetLength(1);
         var result = new int[cols, rows];
         for (int r = 0; r < rows; r++)
             for (int c = 0; c < cols; c++)
-                result[c, rows - 1 - r] = shape[r, c];
+                if (isCw)
+                {
+                    result[c, rows - 1 - r] = shape[r, c];
+                }
+                else
+                {
+                    result[cols - 1 - c, r] = shape[r, c];
+                }
+
         return result;
     }
 }
