@@ -21,6 +21,9 @@ public class GameFieldController : MonoBehaviour
     private int currentX, currentY;
     private List<Image> currentBlocks = new List<Image>();
 
+    [Header("Debug (Inspector で有効化)")]
+    [SerializeField] private bool debugMode = false;     // true のとき C/F キーが有効
+
     // 7種のテトリミノ形状 [row, col]
     private static readonly int[][,] SHAPES = new int[][,]
     {
@@ -54,8 +57,12 @@ public class GameFieldController : MonoBehaviour
 
     private void Update()
     {
-        // --- C: ランダムミノ生成 ---
-        if (Input.GetKeyDown(KeyCode.C)) SpawnRandomMino();
+        // デバッグキー (Inspector の debugMode を ON にすると使用可)
+        if (debugMode)
+        {
+            if (Input.GetKeyDown(KeyCode.C)) SpawnRandomMino();
+            if (Input.GetKeyDown(KeyCode.F)) LockMinoInternal();
+        }
 
         // --- F: 固定 ---
         if (Input.GetKeyDown(KeyCode.F)) LockMino();
