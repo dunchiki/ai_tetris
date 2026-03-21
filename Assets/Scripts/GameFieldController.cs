@@ -21,8 +21,21 @@ public class GameFieldController : MonoBehaviour
     private int currentX, currentY;
     private List<Image> currentBlocks = new List<Image>();
 
+    // ── ゲーム設定(Inspectorで調整可) ────────────────────────────
+    [Header("Game Settings")]
+    [SerializeField] private float fallInterval = 1.0f;  // 自動落下間隔(秒)
+    [SerializeField] private float lockDelay    = 0.5f;  // 接地後に固定されるまでの遅延(秒)
+
     [Header("Debug (Inspector で有効化)")]
     [SerializeField] private bool debugMode = false;     // true のとき C/F キーが有効
+
+    // ── ゲーム状態 ────────────────────────────────────────────────
+    private bool  isPlaying;
+    private float fallTimer;
+    private bool  isLocking;  // 接地して固定待ち中
+    private float lockTimer;
+
+    private GameObject m_GameStartPanel;
 
     // 7種のテトリミノ形状 [row, col]
     private static readonly int[][,] SHAPES = new int[][,]
@@ -55,6 +68,12 @@ public class GameFieldController : MonoBehaviour
 
     private float dasTimerLeft, dasTimerRight, dasTimerDown;
 
+    private void Start()
+    {
+        var btn = GameObject.Find("GameStartButton")?.GetComponent<Button>();
+        if (btn != null) btn.onClick.AddListener(StartGame);
+    }
+
     private void Update()
     {
         // デバッグキー (Inspector の debugMode を ON にすると使用可)
@@ -64,24 +83,32 @@ public class GameFieldController : MonoBehaviour
             if (Input.GetKeyDown(KeyCode.F)) LockMinoInternal();
         }
 
-        // --- F: 固定 ---
-        if (Input.GetKeyDown(KeyCode.F)) LockMino();
+        if (!isPlaying || currentShape == null) return;
 
-        // --- W: ハードドロップ ---
+        // 操作キー
         if (Input.GetKeyDown(KeyCode.W)) HardDrop();
-
-        // --- Q: 反時計回り回転, E: 時計回り回転 ---
         if (Input.GetKeyDown(KeyCode.Q)) RotateMino(clockwise: false);
         if (Input.GetKeyDown(KeyCode.E)) RotateMino(clockwise: true);
 
-        // --- A: 左移動（長押し対応）---
         HandleDAS(KeyCode.A, -1, 0, ref dasTimerLeft);
-
-        // --- D: 右移動（長押し対応）---
         HandleDAS(KeyCode.D,  1, 0, ref dasTimerRight);
-
-        // --- S: 下移動（長押し対応）---
         HandleDAS(KeyCode.S,  0, 1, ref dasTimerDown);
+
+        // 固定待ち or 自動落下
+        if (isLocking)
+        {
+            lockTimer += Time.deltaTime;
+            if (lockTimer >= lockDelay) LockMinoInternal();
+        }
+        else
+        {
+            fallTimer += Time.deltaTime;
+            if (fallTimer >= fallInterval)
+            {
+                fallTimer = 0f;
+                AutoFall();
+            }
+        }
     }
 
     // DAS (Delayed Auto Shift): 初回 GetKeyDown で即反応、長押しで DAS_DELAY 後に DAS_REPEAT 間隔で繰り返す
@@ -138,12 +165,23 @@ public class GameFieldController : MonoBehaviour
     }
 
     /// <summary>
-    /// ランダムなテトリミノを上部中央に生成する。(C キー)
+    /// ランダムなテトリミノを上部中央に生成する。配置不可ならゲームオーバー。
     /// </summary>
     public void SpawnRandomMino()
     {
-        int idx = Random.Range(0, SHAPES.Length);
-        PlaceMino(SHAPES[idx], COLORS[idx]);
+        int idx    = Random.Range(0, SHAPES.Length);
+        int[,] sh  = SHAPES[idx];
+        int spawnX = (COLS - sh.GetLength(1)) / 2;
+        // ゲームプレイ中のみゲームオーバー判定を行う
+        if (isPlaying && !IsValidPosition(sh, spawnX, 0))
+        {
+            GameOver();
+            return;
+        }
+        PlaceMino(sh, COLORS[idx]);
+        isLocking = false;
+        lockTimer = 0f;
+        fallTimer = 0f;
     }
 
     /// <summary>
@@ -159,6 +197,20 @@ public class GameFieldController : MonoBehaviour
             currentX = nx;
             currentY = ny;
             DrawCurrentMino();
+            // ソフトドロップ: 落下タイマーリセット
+            if (dy > 0) fallTimer = 0f;
+            // 横移動で接地が解消された場合はロックタイマーリセット
+            if (isLocking && IsValidPosition(currentShape, currentX, currentY + 1))
+            {
+                isLocking = false;
+                lockTimer = 0f;
+            }
+        }
+        else if (dy > 0 && !isLocking)
+        {
+            // 下向き移動が失敗 = 接地 → 固定待ち開始
+            isLocking = true;
+            lockTimer = 0f;
         }
     }
 
@@ -173,11 +225,17 @@ public class GameFieldController : MonoBehaviour
         {
             currentShape = rotated;
             DrawCurrentMino();
+            // 回転で接地が解消された場合はロックタイマーリセット
+            if (isLocking && IsValidPosition(currentShape, currentX, currentY + 1))
+            {
+                isLocking = false;
+                lockTimer = 0f;
+            }
         }
     }
 
     /// <summary>
-    /// ミノを最下部まで一気に落とす。(W キー)
+    /// ミノを最下部まで一気に落として即固定する。(W キー)
     /// </summary>
     public void HardDrop()
     {
@@ -185,13 +243,42 @@ public class GameFieldController : MonoBehaviour
         while (IsValidPosition(currentShape, currentX, currentY + 1))
             currentY++;
         DrawCurrentMino();
-        LockMino();
+        LockMinoInternal();
     }
 
-    /// <summary>
-    /// 操作中のテトリミノをフィールドに固定する。(F キー)
-    /// </summary>
-    public void LockMino()
+    // ── ゲームロジック ────────────────────────────────────────────
+
+    /// <summary>ゲームを開始する。GameStartButton の onClick から呼ばれる。</summary>
+    public void StartGame()
+    {
+        ClearGrid();
+        isPlaying = true;
+        fallTimer = 0f;
+        isLocking = false;
+        lockTimer = 0f;
+        m_GameStartPanel = GameObject.Find("GameStartPanel");
+        if (m_GameStartPanel != null) m_GameStartPanel.SetActive(false);
+        SpawnRandomMino();
+    }
+
+    // 1ステップ自動落下。接地したら固定待ちを開始する。
+    private void AutoFall()
+    {
+        if (currentShape == null) return;
+        if (IsValidPosition(currentShape, currentX, currentY + 1))
+        {
+            currentY++;
+            DrawCurrentMino();
+        }
+        else
+        {
+            isLocking = true;
+            lockTimer = 0f;
+        }
+    }
+
+    // ミノを固定し、行消去 → 次ミノ生成までの一連の処理
+    private void LockMinoInternal()
     {
         if (currentShape == null) return;
         int rows = currentShape.GetLength(0), cols = currentShape.GetLength(1);
@@ -202,6 +289,65 @@ public class GameFieldController : MonoBehaviour
 
         ClearCurrentBlockImages();
         currentShape = null;
+        isLocking    = false;
+        lockTimer    = 0f;
+        fallTimer    = 0f;
+
+        ClearLines();
+        if (isPlaying) SpawnRandomMino();
+    }
+
+    // 揃った行を消去し、上のブロックを落とす
+    private void ClearLines()
+    {
+        for (int row = ROWS - 1; row >= 0; row--)
+        {
+            if (!IsRowFull(row)) continue;
+
+            // 行を削除
+            for (int col = 0; col < COLS; col++)
+            {
+                Destroy(grid[col, row].gameObject);
+                grid[col, row] = null;
+            }
+            // 消した行より上のブロックを1行落とす
+            for (int r = row - 1; r >= 0; r--)
+                for (int col = 0; col < COLS; col++)
+                {
+                    if (grid[col, r] == null) continue;
+                    grid[col, r + 1] = grid[col, r];
+                    grid[col, r]     = null;
+                    grid[col, r + 1].GetComponent<RectTransform>().anchoredPosition
+                        = FieldToLocalPos(col, r + 1);
+                }
+            row++; // 同インデックスを再チェック（連続消去対応）
+        }
+    }
+
+    private bool IsRowFull(int row)
+    {
+        for (int col = 0; col < COLS; col++)
+            if (grid[col, row] == null) return false;
+        return true;
+    }
+
+    private void GameOver()
+    {
+        isPlaying = false;
+        ClearCurrentMino();
+        if (m_GameStartPanel != null) m_GameStartPanel.SetActive(true);
+    }
+
+    private void ClearGrid()
+    {
+        ClearCurrentMino();
+        for (int col = 0; col < COLS; col++)
+            for (int row = 0; row < ROWS; row++)
+                if (grid[col, row] != null)
+                {
+                    Destroy(grid[col, row].gameObject);
+                    grid[col, row] = null;
+                }
     }
 
     // ---- private ----
