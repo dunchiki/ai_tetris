@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
@@ -33,6 +34,10 @@ public class TetrisGame
     private int  _holdShapeIdx = -1;  // -1 = 空
     private bool _holdUsed;           // true = 今ターン使用済み
 
+    // ── Next ─────────────────────────────────────────────────────
+    private readonly int          _nextCount;              // 表示する Next 数
+    private readonly Queue<int>   _nextQueue = new Queue<int>(); // 次ミノのキュー
+
     // ── ゲーム状態 ────────────────────────────────────────────────
     private bool  _isPlaying;
     private float _fallTimer;
@@ -44,11 +49,12 @@ public class TetrisGame
     private readonly float          _lockDelay;
 
     // ── コンストラクタ ─────────────────────────────────────────────
-    public TetrisGame(TetrisRenderer renderer, float fallInterval, float lockDelay)
+    public TetrisGame(TetrisRenderer renderer, float fallInterval, float lockDelay, int nextCount = 1)
     {
         _renderer     = renderer;
         _fallInterval = fallInterval;
         _lockDelay    = lockDelay;
+        _nextCount    = Mathf.Max(1, nextCount);
     }
 
     // ── 公開 API ──────────────────────────────────────────────────
@@ -64,14 +70,25 @@ public class TetrisGame
         _holdShapeIdx = -1;
         _holdUsed     = false;
         _renderer.ClearHold();
+        // キューを初期化して Next ミノを先読みする
+        _nextQueue.Clear();
+        for (int i = 0; i < _nextCount; i++)
+            _nextQueue.Enqueue(UnityEngine.Random.Range(0, TetrisConfig.SHAPES.Length));
         OnGameStarted?.Invoke();
         SpawnRandomMino();
     }
 
-    /// <summary>ランダムなミノをフィールド上部に生成する。配置不可ならゲームオーバー。</summary>
+    /// <summary>Next キューの先頭ミノを生成し、新しいミノをキューに積む。</summary>
     public void SpawnRandomMino()
     {
-        SpawnMino(UnityEngine.Random.Range(0, TetrisConfig.SHAPES.Length));
+        // キューが空の場合（デバッグ直呼び出し等）は補填
+        while (_nextQueue.Count < _nextCount)
+            _nextQueue.Enqueue(UnityEngine.Random.Range(0, TetrisConfig.SHAPES.Length));
+
+        int spawnIdx = _nextQueue.Dequeue();
+        _nextQueue.Enqueue(UnityEngine.Random.Range(0, TetrisConfig.SHAPES.Length));
+        _renderer.DrawNextQueue(_nextQueue.ToArray());
+        SpawnMino(spawnIdx);
     }
 
     /// <summary>指定インデックスのミノを初期回転でフィールド上部に生成する。</summary>

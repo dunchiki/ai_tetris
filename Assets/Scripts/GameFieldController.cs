@@ -1,4 +1,5 @@
-﻿using UnityEngine;
+﻿using System.Collections.Generic;
+using UnityEngine;
 using UnityEngine.UI;
 
 /// <summary>
@@ -25,9 +26,25 @@ public class GameFieldController : MonoBehaviour
 
     private void Start()
     {
-        var holdArea    = GameObject.Find("HoldArea")?.transform;
-        _renderer       = new TetrisRenderer(transform, holdArea);
-        _game           = new TetrisGame(_renderer, fallInterval, lockDelay);
+        var holdArea   = GameObject.Find("HoldArea")?.transform;
+
+        // RightPanel 内の NextArea1, NextArea2, ... を順番に検索する
+        var rightPanel  = GameObject.Find("RightPanel")?.transform;
+        var nextAreaList = new List<Transform>();
+        if (rightPanel != null)
+        {
+            int idx = 1;
+            Transform t;
+            while ((t = rightPanel.Find($"NextArea{idx}")) != null)
+            {
+                nextAreaList.Add(t);
+                idx++;
+            }
+        }
+        Transform[] nextAreas = nextAreaList.ToArray();
+
+        _renderer = new TetrisRenderer(transform, holdArea, nextAreas);
+        _game     = new TetrisGame(_renderer, fallInterval, lockDelay, nextAreas.Length);
         _gameStartPanel = GameObject.Find("GameStartPanel");
 
         _game.OnGameOver    += () => { if (_gameStartPanel != null) _gameStartPanel.SetActive(true); };

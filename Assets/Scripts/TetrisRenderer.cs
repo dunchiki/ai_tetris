@@ -20,12 +20,20 @@ public class TetrisRenderer
     // Hold 表示用 Image リスト
     private readonly List<Image> _holdImages = new List<Image>();
 
+    // Next 表示用 Image リスト（スロットごと）
+    private readonly Transform[]    _nextAreas;
+    private readonly List<Image>[]  _nextImagesList;
+
     private readonly Transform _holdArea;
 
-    public TetrisRenderer(Transform fieldTransform, Transform holdArea)
+    public TetrisRenderer(Transform fieldTransform, Transform holdArea, Transform[] nextAreas = null)
     {
-        _field    = fieldTransform;
-        _holdArea = holdArea;
+        _field      = fieldTransform;
+        _holdArea   = holdArea;
+        _nextAreas  = nextAreas ?? new Transform[0];
+        _nextImagesList = new List<Image>[_nextAreas.Length];
+        for (int i = 0; i < _nextAreas.Length; i++)
+            _nextImagesList[i] = new List<Image>();
     }
 
     // ── ミノ描画 ──────────────────────────────────────────────────
@@ -77,11 +85,12 @@ public class TetrisRenderer
             = FieldToLocalPos(col, toRow);
     }
 
-    /// <summary>全ての Image (ミノ・グリッド・Hold) を破棄する。</summary>
+    /// <summary>全ての Image (ミノ・グリッド・Hold・Next) を破棄する。</summary>
     public void ClearAll()
     {
         ClearMino();
         ClearHold();
+        ClearNext();
         for (int col = 0; col < TetrisConfig.COLS; col++)
             for (int row = 0; row < TetrisConfig.ROWS; row++)
                 RemoveBlock(col, row);
@@ -135,6 +144,63 @@ public class TetrisRenderer
         foreach (var img in _holdImages)
             if (img != null) Object.Destroy(img.gameObject);
         _holdImages.Clear();
+    }
+
+    // ── Next 表示 ──────────────────────────────────────────────────
+
+    /// <summary>Next キューの内容を各 NextArea スロットに一括描画する。</summary>
+    public void DrawNextQueue(int[] shapeIndices)
+    {
+        for (int slot = 0; slot < _nextAreas.Length; slot++)
+        {
+            ClearNextSlot(slot);
+            if (slot < shapeIndices.Length)
+                DrawNextSlot(slot, TetrisConfig.SHAPES[shapeIndices[slot]],
+                                   TetrisConfig.COLORS[shapeIndices[slot]]);
+        }
+    }
+
+    /// <summary>全 Next スロットの表示を消去する。</summary>
+    public void ClearNext()
+    {
+        for (int i = 0; i < _nextImagesList.Length; i++)
+            ClearNextSlot(i);
+    }
+
+    private void ClearNextSlot(int slot)
+    {
+        foreach (var img in _nextImagesList[slot])
+            if (img != null) Object.Destroy(img.gameObject);
+        _nextImagesList[slot].Clear();
+    }
+
+    private void DrawNextSlot(int slot, int[,] shape, Color color)
+    {
+        var area = _nextAreas[slot];
+        if (area == null) return;
+        int rows = shape.GetLength(0), cols = shape.GetLength(1);
+        float ox = -(cols * TetrisConfig.CELL_SIZE) * 0.5f + TetrisConfig.CELL_SIZE * 0.5f;
+        float oy =  (rows * TetrisConfig.CELL_SIZE) * 0.5f - TetrisConfig.CELL_SIZE * 0.5f;
+        for (int r = 0; r < rows; r++)
+            for (int c = 0; c < cols; c++)
+                if (shape[r, c] == 1)
+                    _nextImagesList[slot].Add(CreateNextImage(area, c, r, ox, oy, color));
+    }
+
+    private Image CreateNextImage(Transform parent, int col, int row, float ox, float oy, Color color)
+    {
+        var go = new GameObject($"Next_{col}_{row}");
+        go.transform.SetParent(parent, false);
+
+        var rt = go.AddComponent<RectTransform>();
+        rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
+        rt.sizeDelta = new Vector2(TetrisConfig.CELL_SIZE - 1f, TetrisConfig.CELL_SIZE - 1f);
+        rt.anchoredPosition = new Vector2(ox + col * TetrisConfig.CELL_SIZE,
+                                          oy - row * TetrisConfig.CELL_SIZE);
+
+        var img = go.AddComponent<Image>();
+        img.color = color;
+        return img;
     }
 
     private Image CreateHoldImage(int col, int row, float ox, float oy, Color color)
