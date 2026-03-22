@@ -66,17 +66,27 @@ public class GameFieldController : MonoBehaviour
         if (!_game.IsPlaying || !_game.HasMino) return;
 
         // ── 操作キー ──────────────────────────────────────────────
-        if (Input.GetKeyDown(KeyCode.W)) _game.HardDrop();
         if (Input.GetKeyDown(KeyCode.Q)) _game.RotateMino(clockwise: false);
         if (Input.GetKeyDown(KeyCode.E)) _game.RotateMino(clockwise: true);
         if (Input.GetKeyDown(KeyCode.H)) _game.HoldMino();
 
+        if (!debugMode)
+        {
+            if (Input.GetKeyDown(KeyCode.W)) _game.HardDrop();
+        }
+        else
+        {
+            HandleDAS(KeyCode.W,  0, -1, ref _dasDown);
+        }
         HandleDAS(KeyCode.A, -1, 0, ref _dasLeft);
         HandleDAS(KeyCode.D,  1, 0, ref _dasRight);
         HandleDAS(KeyCode.S,  0, 1, ref _dasDown);
 
         // ── タイマー更新（自動落下・固定遅延）────────────────────
-        _game.Tick(Time.deltaTime);
+        if (!debugMode)
+        {
+            _game.Tick(Time.deltaTime);
+        }
     }
 
     // ── DAS (Delayed Auto Shift) ──────────────────────────────────
