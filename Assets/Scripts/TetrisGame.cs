@@ -193,9 +193,10 @@ public class TetrisGame
 
         int fromState = _currentRotation;
         int toState   = (clockwise ? fromState + 1 : fromState + 3) % 4;
-        // セル座標配列を一時的に int[,] に変換して配列回転し、再びセル配列に戻す（挙動維持ブリッジ）
-        var rotated = ShapeToCells(RotateShape(CellsToShape(_currentCells), clockwise));
-        var kicks   = GetKickTable(_currentShapeIdx, fromState, toState);
+        // pivot 基準の座標回転（SRS 準拠）
+        var (px, py) = GetPivot(_currentShapeIdx);
+        var rotated  = RotateCells(_currentCells, px, py, clockwise);
+        var kicks    = GetKickTable(_currentShapeIdx, fromState, toState);
 
         foreach (var (dx, dy) in kicks)
         {
@@ -439,37 +440,24 @@ public class TetrisGame
         _ => (1.0f, 1.0f), // JLSTZ
     };
 
-    /// <summary>セル座標配列を int[,] 形状に変換する（RotateShape ブリッジ用）。</summary>
-    private static int[,] CellsToShape(Vector2Int[] cells)
+    /// <summary>
+    /// pivot 基準の SRS 座標回転。
+    /// float 計算後に Mathf.RoundToInt で int 化。
+    /// </summary>
+    public static Vector2Int[] RotateCells(Vector2Int[] cells, float px, float py, bool clockwise)
     {
-        int maxX = 0, maxY = 0;
-        foreach (var c in cells) { maxX = Mathf.Max(maxX, c.x); maxY = Mathf.Max(maxY, c.y); }
-        var shape = new int[maxY + 1, maxX + 1];
-        foreach (var c in cells) shape[c.y, c.x] = 1;
-        return shape;
-    }
-
-    /// <summary>int[,] 形状をセル座標配列に変換する（RotateShape ブリッジ用）。</summary>
-    private static Vector2Int[] ShapeToCells(int[,] shape)
-    {
-        var list = new List<Vector2Int>();
-        for (int r = 0; r < shape.GetLength(0); r++)
-            for (int c = 0; c < shape.GetLength(1); c++)
-                if (shape[r, c] == 1)
-                    list.Add(new Vector2Int(c, r));
-        return list.ToArray();
-    }
-
-    private static int[,] RotateShape(int[,] shape, bool isCw)
-    {
-        int rows = shape.GetLength(0), cols = shape.GetLength(1);
-        var result = new int[cols, rows];
-        for (int r = 0; r < rows; r++)
-            for (int c = 0; c < cols; c++)
-                if (isCw)
-                    result[c, rows - 1 - r] = shape[r, c];
-                else
-                    result[cols - 1 - c, r] = shape[r, c];
+        var result = new Vector2Int[cells.Length];
+        for (int i = 0; i < cells.Length; i++)
+        {
+            float lx = cells[i].x - px;
+            float ly = cells[i].y - py;
+            float rx, ry;
+            if (clockwise) { rx = -ly; ry =  lx; }
+            else { rx =  ly; ry = -lx; }
+            result[i] = new Vector2Int(
+                Mathf.RoundToInt(rx + px),
+                Mathf.RoundToInt(ry + py));
+        }
         return result;
     }
 }

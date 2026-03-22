@@ -19,8 +19,8 @@ public class GameFieldController : MonoBehaviour
     private TetrisRenderer _renderer;
     private GameObject     _gameStartPanel;
 
-    // DAS タイマー (左・右・下)
-    private float _dasLeft, _dasRight, _dasDown;
+    // DAS タイマー (左・右・下・上)
+    private float _dasLeft, _dasRight, _dasDown, _dasUp;
 
     // ── Unity ライフサイクル ───────────────────────────────────────
 
@@ -76,7 +76,7 @@ public class GameFieldController : MonoBehaviour
         }
         else
         {
-            HandleDAS(KeyCode.W,  0, -1, ref _dasDown);
+            HandleDAS(KeyCode.W,  0, -1, ref _dasUp);
         }
         HandleDAS(KeyCode.A, -1, 0, ref _dasLeft);
         HandleDAS(KeyCode.D,  1, 0, ref _dasRight);

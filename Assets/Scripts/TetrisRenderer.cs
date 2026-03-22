@@ -39,17 +39,6 @@ public class TetrisRenderer
     // ── ミノ描画 ──────────────────────────────────────────────────
 
     /// <summary>操作中ミノを再描画する。</summary>
-    public void DrawMino(int[,] shape, Color color, int posX, int posY)
-    {
-        ClearMino();
-        int rows = shape.GetLength(0), cols = shape.GetLength(1);
-        for (int r = 0; r < rows; r++)
-            for (int c = 0; c < cols; c++)
-                if (shape[r, c] == 1)
-                    _minoImages.Add(CreateImage(posX + c, posY + r, color));
-    }
-
-    /// <summary>操作中ミノをセル座標配列で再描画する。</summary>
     public void DrawMino(Vector2Int[] cells, Color color, int posX, int posY)
     {
         ClearMino();
@@ -132,20 +121,6 @@ public class TetrisRenderer
     // ── Hold 表示 ──────────────────────────────────────────────────
 
     /// <summary>Hold ミノを HoldArea 中央に描画する。</summary>
-    public void DrawHold(int[,] shape, Color color)
-    {
-        ClearHold();
-        if (_holdArea == null) return;
-        int rows = shape.GetLength(0), cols = shape.GetLength(1);
-        // HoldArea 中央揃えのオフセット
-        float ox = -(cols * TetrisConfig.CELL_SIZE) * 0.5f + TetrisConfig.CELL_SIZE * 0.5f;
-        float oy =  (rows * TetrisConfig.CELL_SIZE) * 0.5f - TetrisConfig.CELL_SIZE * 0.5f;
-        for (int r = 0; r < rows; r++)
-            for (int c = 0; c < cols; c++)
-                if (shape[r, c] == 1)
-                    _holdImages.Add(CreateHoldImage(c, r, ox, oy, color));
-    }
-    /// <summary>Hold ミノをセル座標配列で HoldArea 中央に描画する。</summary>
     public void DrawHold(Vector2Int[] cells, Color color)
     {
         ClearHold();
@@ -175,7 +150,7 @@ public class TetrisRenderer
         {
             ClearNextSlot(slot);
             if (slot < shapeIndices.Length)
-                DrawNextSlot(slot, TetrisConfig.SHAPES[shapeIndices[slot]],
+                DrawNextSlot(slot, TetrisGame.GetCells(shapeIndices[slot]),
                                    TetrisConfig.COLORS[shapeIndices[slot]]);
         }
     }
@@ -194,17 +169,17 @@ public class TetrisRenderer
         _nextImagesList[slot].Clear();
     }
 
-    private void DrawNextSlot(int slot, int[,] shape, Color color)
+    private void DrawNextSlot(int slot, Vector2Int[] cells, Color color)
     {
         var area = _nextAreas[slot];
         if (area == null) return;
-        int rows = shape.GetLength(0), cols = shape.GetLength(1);
+        int maxX = 0, maxY = 0;
+        foreach (var c in cells) { maxX = Mathf.Max(maxX, c.x); maxY = Mathf.Max(maxY, c.y); }
+        int cols = maxX + 1, rows = maxY + 1;
         float ox = -(cols * TetrisConfig.CELL_SIZE) * 0.5f + TetrisConfig.CELL_SIZE * 0.5f;
         float oy =  (rows * TetrisConfig.CELL_SIZE) * 0.5f - TetrisConfig.CELL_SIZE * 0.5f;
-        for (int r = 0; r < rows; r++)
-            for (int c = 0; c < cols; c++)
-                if (shape[r, c] == 1)
-                    _nextImagesList[slot].Add(CreateNextImage(area, c, r, ox, oy, color));
+        foreach (var c in cells)
+            _nextImagesList[slot].Add(CreateNextImage(area, c.x, c.y, ox, oy, color));
     }
 
     private Image CreateNextImage(Transform parent, int col, int row, float ox, float oy, Color color)
