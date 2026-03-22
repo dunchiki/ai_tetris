@@ -18,17 +18,18 @@ public class TetrisGame
 
     // ── 公開プロパティ ─────────────────────────────────────────────
     public bool IsPlaying => _isPlaying;
-    public bool HasMino   => _currentShape != null;
+    public bool HasMino   => _currentCells != null;
 
     // ── グリッド状態 ──────────────────────────────────────────────
     // true = 固定済みブロックあり
     private readonly bool[,] _grid = new bool[TetrisConfig.COLS, TetrisConfig.ROWS];
 
     // ── 現在操作中ミノ ────────────────────────────────────────────
-    private int[,] _currentShape;
+    private Vector2Int[] _currentCells;   // セル座標集合（ローカル座標: x=列, y=行）
     private Color  _currentColor;
     private int    _currentX, _currentY;
     private int    _currentShapeIdx;
+    private int    _currentRotation;   // 0=Spawn, 1=R(CW), 2=Reverse, 3=L(CCW)
 
     // ── Hold ─────────────────────────────────────────────────────
     private int  _holdShapeIdx = -1;  // -1 = 空
@@ -120,15 +121,18 @@ public class TetrisGame
     /// <summary>指定インデックスのミノを初期回転でフィールド上部に生成する。</summary>
     private void SpawnMino(int shapeIdx)
     {
-        int[,] sh  = TetrisConfig.SHAPES[shapeIdx];
-        int spawnX = (TetrisConfig.COLS - sh.GetLength(1)) / 2;
-        if (_isPlaying && !IsValidPosition(sh, spawnX, 0))
+        var cells = GetCells(shapeIdx);
+        int width = 0;
+        foreach (var c in cells) width = Mathf.Max(width, c.x + 1);
+        int spawnX = (TetrisConfig.COLS - width) / 2;
+        if (_isPlaying && !IsValidPosition(cells, spawnX, 0))
         {
             GameOver();
             return;
         }
         _currentShapeIdx = shapeIdx;
-        PlaceMino(sh, TetrisConfig.COLORS[shapeIdx]);
+        _currentRotation = 0;
+        PlaceMino(cells, TetrisConfig.COLORS[shapeIdx]);
         _isLocking = false;
         _lockTimer = 0f;
         _fallTimer = 0f;
@@ -137,16 +141,16 @@ public class TetrisGame
     /// <summary>現在のミノを Hold する、または Hold 内のミノと入れ替える。(H キー)</summary>
     public void HoldMino()
     {
-        if (_currentShape == null || _holdUsed) return;
+        if (_currentCells == null || _holdUsed) return;
 
         int prevHoldIdx = _holdShapeIdx;
         _holdShapeIdx   = _currentShapeIdx;
         _holdUsed       = true;
 
         // Hold 表示を更新
-        _renderer.DrawHold(TetrisConfig.SHAPES[_holdShapeIdx], TetrisConfig.COLORS[_holdShapeIdx]);
+        _renderer.DrawHold(GetCells(_holdShapeIdx), TetrisConfig.COLORS[_holdShapeIdx]);
         _renderer.ClearMino();
-        _currentShape = null;
+        _currentCells = null;
 
         // Hold が空だった → 新ミノを生成、そうでなければ Hold からミノを取り出す
         if (prevHoldIdx < 0)
@@ -158,17 +162,17 @@ public class TetrisGame
     /// <summary>操作中ミノを移動する。dx: 横変位, dy: 縦変位（下が正）</summary>
     public void MoveMino(int dx, int dy)
     {
-        if (_currentShape == null) return;
+        if (_currentCells == null) return;
         int nx = _currentX + dx, ny = _currentY + dy;
-        if (IsValidPosition(_currentShape, nx, ny))
+        if (IsValidPosition(_currentCells, nx, ny))
         {
             _currentX = nx;
             _currentY = ny;
-            _renderer.DrawMino(_currentShape, _currentColor, _currentX, _currentY);
+            _renderer.DrawMino(_currentCells, _currentColor, _currentX, _currentY);
             // ソフトドロップ: 落下タイマーリセット
             if (dy > 0) _fallTimer = 0f;
             // 横移動で接地が解消された場合はロックタイマーリセット
-            if (_isLocking && IsValidPosition(_currentShape, _currentX, _currentY + 1))
+            if (_isLocking && IsValidPosition(_currentCells, _currentX, _currentY + 1))
             {
                 _isLocking = false;
                 _lockTimer = 0f;
@@ -182,30 +186,47 @@ public class TetrisGame
         }
     }
 
-    /// <summary>操作中ミノを回転する。clockwise=true で時計回り(E)。</summary>
+    /// <summary>SRS (Super Rotation System) に基づいてミノを回転する。</summary>
     public void RotateMino(bool clockwise)
     {
-        if (_currentShape == null) return;
-        var rotated = RotateShape(_currentShape, clockwise);
-        if (!IsValidPosition(rotated, _currentX, _currentY)) return;
+        if (_currentCells == null) return;
 
-        _currentShape = rotated;
-        _renderer.DrawMino(_currentShape, _currentColor, _currentX, _currentY);
-        // 回転で接地が解消された場合はロックタイマーリセット
-        if (_isLocking && IsValidPosition(_currentShape, _currentX, _currentY + 1))
+        int fromState = _currentRotation;
+        int toState   = (clockwise ? fromState + 1 : fromState + 3) % 4;
+        // セル座標配列を一時的に int[,] に変換して配列回転し、再びセル配列に戻す（挙動維持ブリッジ）
+        var rotated = ShapeToCells(RotateShape(CellsToShape(_currentCells), clockwise));
+        var kicks   = GetKickTable(_currentShapeIdx, fromState, toState);
+
+        foreach (var (dx, dy) in kicks)
         {
-            _isLocking = false;
-            _lockTimer = 0f;
+            int nx = _currentX + dx;
+            int ny = _currentY + dy;
+            if (!IsValidPosition(rotated, nx, ny)) continue;
+
+            // Wall Kick 成功 → 状態を更新
+            _currentRotation = toState;
+            _currentCells    = rotated;
+            _currentX        = nx;
+            _currentY        = ny;
+            _renderer.DrawMino(_currentCells, _currentColor, _currentX, _currentY);
+            // 回転で接地が解消された場合はロックタイマーリセット
+            if (_isLocking && IsValidPosition(_currentCells, _currentX, _currentY + 1))
+            {
+                _isLocking = false;
+                _lockTimer = 0f;
+            }
+            return;
         }
+        // 全候補が衝突 → 回転しない
     }
 
     /// <summary>ミノを最下部まで落として即固定する。(W キー)</summary>
     public void HardDrop()
     {
-        if (_currentShape == null) return;
-        while (IsValidPosition(_currentShape, _currentX, _currentY + 1))
+        if (_currentCells == null) return;
+        while (IsValidPosition(_currentCells, _currentX, _currentY + 1))
             _currentY++;
-        _renderer.DrawMino(_currentShape, _currentColor, _currentX, _currentY);
+        _renderer.DrawMino(_currentCells, _currentColor, _currentX, _currentY);
         LockMinoInternal();
     }
 
@@ -215,7 +236,7 @@ public class TetrisGame
     /// <summary>毎フレーム呼ぶタイマー更新処理（自動落下・固定遅延）。</summary>
     public void Tick(float deltaTime)
     {
-        if (!_isPlaying || _currentShape == null) return;
+        if (!_isPlaying || _currentCells == null) return;
 
         if (_isLocking)
         {
@@ -235,24 +256,26 @@ public class TetrisGame
 
     // ── 内部処理 ──────────────────────────────────────────────────
 
-    private void PlaceMino(int[,] shape, Color color)
+    private void PlaceMino(Vector2Int[] cells, Color color)
     {
         _renderer.ClearMino();
-        _currentShape = shape;
+        _currentCells = cells;
         _currentColor = color;
-        _currentX = (TetrisConfig.COLS - shape.GetLength(1)) / 2;
+        int width = 0;
+        foreach (var c in cells) width = Mathf.Max(width, c.x + 1);
+        _currentX = (TetrisConfig.COLS - width) / 2;
         _currentY = 0;
-        _renderer.DrawMino(_currentShape, _currentColor, _currentX, _currentY);
+        _renderer.DrawMino(_currentCells, _currentColor, _currentX, _currentY);
     }
 
     // 1ステップ自動落下。接地したら固定待ちを開始する。
     private void AutoFall()
     {
-        if (_currentShape == null) return;
-        if (IsValidPosition(_currentShape, _currentX, _currentY + 1))
+        if (_currentCells == null) return;
+        if (IsValidPosition(_currentCells, _currentX, _currentY + 1))
         {
             _currentY++;
-            _renderer.DrawMino(_currentShape, _currentColor, _currentX, _currentY);
+            _renderer.DrawMino(_currentCells, _currentColor, _currentX, _currentY);
         }
         else
         {
@@ -264,19 +287,16 @@ public class TetrisGame
     // ミノを固定し、ライン消去 → 次ミノ生成を行う。
     private void LockMinoInternal()
     {
-        if (_currentShape == null) return;
-        int rows = _currentShape.GetLength(0), cols = _currentShape.GetLength(1);
-        for (int r = 0; r < rows; r++)
-            for (int c = 0; c < cols; c++)
-                if (_currentShape[r, c] == 1)
-                {
-                    int col = _currentX + c, row = _currentY + r;
-                    _grid[col, row] = true;
-                    _renderer.PlaceBlock(col, row, _currentColor);
-                }
+        if (_currentCells == null) return;
+        foreach (var c in _currentCells)
+        {
+            int col = _currentX + c.x, row = _currentY + c.y;
+            _grid[col, row] = true;
+            _renderer.PlaceBlock(col, row, _currentColor);
+        }
 
         _renderer.ClearMino();
-        _currentShape = null;
+        _currentCells = null;
         _isLocking    = false;
         _lockTimer    = 0f;
         _fallTimer    = 0f;
@@ -322,7 +342,7 @@ public class TetrisGame
     private void GameOver()
     {
         _isPlaying    = false;
-        _currentShape = null;
+        _currentCells = null;
         _renderer.ClearMino();
         OnGameOver?.Invoke();
     }
@@ -330,25 +350,114 @@ public class TetrisGame
     private void ClearGrid()
     {
         _renderer.ClearAll();
-        _currentShape = null;
+        _currentCells = null;
         for (int col = 0; col < TetrisConfig.COLS; col++)
             for (int row = 0; row < TetrisConfig.ROWS; row++)
                 _grid[col, row] = false;
     }
 
-    private bool IsValidPosition(int[,] shape, int posX, int posY)
+    private bool IsValidPosition(Vector2Int[] cells, int posX, int posY)
     {
-        int rows = shape.GetLength(0), cols = shape.GetLength(1);
-        for (int r = 0; r < rows; r++)
-            for (int c = 0; c < cols; c++)
-                if (shape[r, c] == 1)
-                {
-                    int fx = posX + c, fy = posY + r;
-                    if (fx < 0 || fx >= TetrisConfig.COLS) return false;
-                    if (fy < 0 || fy >= TetrisConfig.ROWS) return false;
-                    if (_grid[fx, fy]) return false;
-                }
+        foreach (var c in cells)
+        {
+            int fx = posX + c.x, fy = posY + c.y;
+            if (fx < 0 || fx >= TetrisConfig.COLS) return false;
+            if (fy < 0 || fy >= TetrisConfig.ROWS) return false;
+            if (_grid[fx, fy]) return false;
+        }
         return true;
+    }
+
+    /// <summary>
+    /// SRS Wall Kick テーブルを返す。
+    /// オフセットの Y は下向き正のゲーム座標系（SRS 標準の Y 上向きを反転済み）。
+    /// </summary>
+    private static (int dx, int dy)[] GetKickTable(int shapeIdx, int from, int to)
+    {
+        // O ミノ (index 1) : 回転補正なし
+        if (shapeIdx == 1) return new (int, int)[] { (0, 0) };
+
+        int key = from * 4 + to;
+
+        // I ミノ (index 0)
+        if (shapeIdx == 0)
+        {
+            return key switch
+            {
+                0 * 4 + 1 => new (int, int)[] { (0,0), (-2,0), ( 1,0), (-2, 1), ( 1,-2) }, // 0→R
+                1 * 4 + 0 => new (int, int)[] { (0,0), ( 2,0), (-1,0), ( 2,-1), (-1, 2) }, // R→0
+                1 * 4 + 2 => new (int, int)[] { (0,0), (-1,0), ( 2,0), (-1,-2), ( 2, 1) }, // R→2
+                2 * 4 + 1 => new (int, int)[] { (0,0), ( 1,0), (-2,0), ( 1, 2), (-2,-1) }, // 2→R
+                2 * 4 + 3 => new (int, int)[] { (0,0), ( 2,0), (-1,0), ( 2,-1), (-1, 2) }, // 2→L
+                3 * 4 + 2 => new (int, int)[] { (0,0), (-2,0), ( 1,0), (-2, 1), ( 1,-2) }, // L→2
+                3 * 4 + 0 => new (int, int)[] { (0,0), ( 1,0), (-2,0), ( 1, 2), (-2,-1) }, // L→0
+                0 * 4 + 3 => new (int, int)[] { (0,0), (-1,0), ( 2,0), (-1,-2), ( 2, 1) }, // 0→L
+                _         => new (int, int)[] { (0, 0) },
+            };
+        }
+
+        // JLSTZ 共通 (index 2〜6)
+        return key switch
+        {
+            0 * 4 + 1 => new (int, int)[] { (0,0), (-1,0), (-1,-1), ( 0, 2), (-1, 2) }, // 0→R
+            1 * 4 + 0 => new (int, int)[] { (0,0), ( 1,0), ( 1, 1), ( 0,-2), ( 1,-2) }, // R→0
+            1 * 4 + 2 => new (int, int)[] { (0,0), ( 1,0), ( 1, 1), ( 0,-2), ( 1,-2) }, // R→2
+            2 * 4 + 1 => new (int, int)[] { (0,0), (-1,0), (-1,-1), ( 0, 2), (-1, 2) }, // 2→R
+            2 * 4 + 3 => new (int, int)[] { (0,0), ( 1,0), ( 1,-1), ( 0, 2), ( 1, 2) }, // 2→L
+            3 * 4 + 2 => new (int, int)[] { (0,0), (-1,0), (-1, 1), ( 0,-2), (-1,-2) }, // L→2
+            3 * 4 + 0 => new (int, int)[] { (0,0), (-1,0), (-1, 1), ( 0,-2), (-1,-2) }, // L→0
+            0 * 4 + 3 => new (int, int)[] { (0,0), ( 1,0), ( 1,-1), ( 0, 2), ( 1, 2) }, // 0→L
+            _         => new (int, int)[] { (0, 0) },
+        };
+    }
+
+    // ── SRS データ構造ヘルパー ────────────────────────────────────
+
+    /// <summary>
+    /// ミノ形状定義（int[,]）をローカルセル座標の配列に変換する。
+    /// x = 列(右向き正), y = 行(下向き正)。
+    /// </summary>
+    public static Vector2Int[] GetCells(int shapeIdx)
+    {
+        var shape = TetrisConfig.SHAPES[shapeIdx];
+        var list  = new List<Vector2Int>();
+        for (int r = 0; r < shape.GetLength(0); r++)
+            for (int c = 0; c < shape.GetLength(1); c++)
+                if (shape[r, c] == 1)
+                    list.Add(new Vector2Int(c, r));
+        return list.ToArray();
+    }
+
+    /// <summary>
+    /// SRS 準拠の回転中心（pivot）を返す。
+    /// I = (1.5, 1.5)、O = (0.5, 0.5)、JLSTZ = (1.0, 1.0)。
+    /// </summary>
+    public static (float px, float py) GetPivot(int shapeIdx) => shapeIdx switch
+    {
+        0 => (1.5f, 1.5f), // I
+        1 => (0.5f, 0.5f), // O
+        _ => (1.0f, 1.0f), // JLSTZ
+    };
+
+    /// <summary>セル座標配列を int[,] 形状に変換する（RotateShape ブリッジ用）。</summary>
+    private static int[,] CellsToShape(Vector2Int[] cells)
+    {
+        int maxX = 0, maxY = 0;
+        foreach (var c in cells) { maxX = Mathf.Max(maxX, c.x); maxY = Mathf.Max(maxY, c.y); }
+        var shape = new int[maxY + 1, maxX + 1];
+        foreach (var c in cells) shape[c.y, c.x] = 1;
+        return shape;
+    }
+
+    /// <summary>int[,] 形状をセル座標配列に変換する（RotateShape ブリッジ用）。</summary>
+    private static Vector2Int[] ShapeToCells(int[,] shape)
+    {
+        var list = new List<Vector2Int>();
+        for (int r = 0; r < shape.GetLength(0); r++)
+            for (int c = 0; c < shape.GetLength(1); c++)
+                if (shape[r, c] == 1)
+                    list.Add(new Vector2Int(c, r));
+        return list.ToArray();
     }
 
     private static int[,] RotateShape(int[,] shape, bool isCw)

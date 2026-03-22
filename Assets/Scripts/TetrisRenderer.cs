@@ -49,6 +49,14 @@ public class TetrisRenderer
                     _minoImages.Add(CreateImage(posX + c, posY + r, color));
     }
 
+    /// <summary>操作中ミノをセル座標配列で再描画する。</summary>
+    public void DrawMino(Vector2Int[] cells, Color color, int posX, int posY)
+    {
+        ClearMino();
+        foreach (var c in cells)
+            _minoImages.Add(CreateImage(posX + c.x, posY + c.y, color));
+    }
+
     /// <summary>操作中ミノの Image を全て破棄する。</summary>
     public void ClearMino()
     {
@@ -137,7 +145,19 @@ public class TetrisRenderer
                 if (shape[r, c] == 1)
                     _holdImages.Add(CreateHoldImage(c, r, ox, oy, color));
     }
-
+    /// <summary>Hold ミノをセル座標配列で HoldArea 中央に描画する。</summary>
+    public void DrawHold(Vector2Int[] cells, Color color)
+    {
+        ClearHold();
+        if (_holdArea == null) return;
+        int maxX = 0, maxY = 0;
+        foreach (var c in cells) { maxX = Mathf.Max(maxX, c.x); maxY = Mathf.Max(maxY, c.y); }
+        int cols = maxX + 1, rows = maxY + 1;
+        float ox = -(cols * TetrisConfig.CELL_SIZE) * 0.5f + TetrisConfig.CELL_SIZE * 0.5f;
+        float oy =  (rows * TetrisConfig.CELL_SIZE) * 0.5f - TetrisConfig.CELL_SIZE * 0.5f;
+        foreach (var c in cells)
+            _holdImages.Add(CreateHoldImage(c.x, c.y, ox, oy, color));
+    }
     /// <summary>Hold 表示を消去する。</summary>
     public void ClearHold()
     {
