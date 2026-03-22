@@ -53,7 +53,7 @@ public class TetrisRenderer
     public void ClearMino()
     {
         foreach (var img in _minoImages)
-            if (img != null) Object.Destroy(img.gameObject);
+            if (img != null) DestroyObject(img.gameObject);
         _minoImages.Clear();
     }
 
@@ -63,7 +63,7 @@ public class TetrisRenderer
     public void PlaceBlock(int col, int row, Color color)
     {
         if (_blockImages[col, row] != null)
-            Object.Destroy(_blockImages[col, row].gameObject);
+            DestroyObject(_blockImages[col, row].gameObject);
         _blockImages[col, row] = CreateImage(col, row, color);
     }
 
@@ -71,7 +71,7 @@ public class TetrisRenderer
     public void RemoveBlock(int col, int row)
     {
         if (_blockImages[col, row] == null) return;
-        Object.Destroy(_blockImages[col, row].gameObject);
+        DestroyObject(_blockImages[col, row].gameObject);
         _blockImages[col, row] = null;
     }
 
@@ -142,7 +142,7 @@ public class TetrisRenderer
     public void ClearHold()
     {
         foreach (var img in _holdImages)
-            if (img != null) Object.Destroy(img.gameObject);
+            if (img != null) DestroyObject(img.gameObject);
         _holdImages.Clear();
     }
 
@@ -170,7 +170,7 @@ public class TetrisRenderer
     private void ClearNextSlot(int slot)
     {
         foreach (var img in _nextImagesList[slot])
-            if (img != null) Object.Destroy(img.gameObject);
+            if (img != null) DestroyObject(img.gameObject);
         _nextImagesList[slot].Clear();
     }
 
@@ -217,5 +217,20 @@ public class TetrisRenderer
         var img = go.AddComponent<Image>();
         img.color = color;
         return img;
+    }
+
+    /// <summary>
+    /// Edit Mode では DestroyImmediate、Play Mode では Destroy を使う。
+    /// </summary>
+    private static void DestroyObject(Object obj)
+    {
+#if UNITY_EDITOR
+        if (!Application.isPlaying)
+        {
+            Object.DestroyImmediate(obj);
+            return;
+        }
+#endif
+        Object.Destroy(obj);
     }
 }
