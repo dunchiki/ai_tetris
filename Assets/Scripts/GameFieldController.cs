@@ -52,6 +52,9 @@ public class GameFieldController : MonoBehaviour
 
         var btn = GameObject.Find("GameStartButton")?.GetComponent<Button>();
         if (btn != null) btn.onClick.AddListener(_game.StartGame);
+
+        var exitButton = GameObject.Find("ExitButton")?.GetComponent<Button>();
+        if (exitButton != null) exitButton.onClick.AddListener(_game.EndGame);
     }
 
     private void Update()

@@ -234,6 +234,13 @@ public class TetrisGame
     /// <summary>デバッグ用: 現在ミノを即座に固定する。</summary>
     public void ForceLock() => LockMinoInternal();
 
+    /// <summary>ゲームを終了し、ゲームオーバー状態に遷移する。</summary>
+    public void EndGame()
+    {
+        if (!_isPlaying) return;
+        GameOver();
+    }
+
     /// <summary>毎フレーム呼ぶタイマー更新処理（自動落下・固定遅延）。</summary>
     public void Tick(float deltaTime)
     {

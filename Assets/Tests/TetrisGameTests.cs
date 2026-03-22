@@ -108,6 +108,20 @@ public class TetrisGameTests
         Assert.IsTrue(_game.HasMino,   "再スタート後は HasMino が true のはず");
     }
 
+    [Test]
+    public void EndGame_SetsIsPlayingFalse_AndFiresOnGameOver()
+    {
+        _game.StartGame();
+        bool fired = false;
+        _game.OnGameOver += () => fired = true;
+
+        _game.EndGame();
+
+        Assert.IsFalse(_game.IsPlaying, "EndGame 後は IsPlaying が false のはず");
+        Assert.IsFalse(_game.HasMino,   "EndGame 後は HasMino が false のはず");
+        Assert.IsTrue(fired,            "EndGame で OnGameOver イベントが発火するはず");
+    }
+
     // ═══════════════════════════════════════════════════════════════
     // MoveMino ── 移動
     // ═══════════════════════════════════════════════════════════════
