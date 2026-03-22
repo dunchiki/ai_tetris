@@ -52,6 +52,9 @@ public class GameFieldController : MonoBehaviour
 
         var btn = GameObject.Find("GameStartButton")?.GetComponent<Button>();
         if (btn != null) btn.onClick.AddListener(_game.StartGame);
+
+        var exitButton = GameObject.Find("ExitButton")?.GetComponent<Button>();
+        if (exitButton != null) exitButton.onClick.AddListener(ExitApplication);
     }
 
     private void Update()
@@ -111,5 +114,15 @@ public class GameFieldController : MonoBehaviour
         {
             timer = -TetrisConfig.DAS_DELAY;  // キーが離されたらリセット
         }
+    }
+
+    /// <summary>ゲームアプリケーションを終了する。</summary>
+    private void ExitApplication()
+    {
+#if UNITY_EDITOR
+        UnityEditor.EditorApplication.isPlaying = false;
+#else
+        Application.Quit();
+#endif
     }
 }
