@@ -38,6 +38,9 @@ public class TetrisGame
     private readonly int          _nextCount;              // 表示する Next 数
     private readonly Queue<int>   _nextQueue = new Queue<int>(); // 次ミノのキュー
 
+    // ── 7種1順バッグ ─────────────────────────────────────────────
+    private readonly List<int> _bag = new List<int>(); // シャッフル済みバッグ
+
     // ── ゲーム状態 ────────────────────────────────────────────────
     private bool  _isPlaying;
     private float _fallTimer;
@@ -72,8 +75,9 @@ public class TetrisGame
         _renderer.ClearHold();
         // キューを初期化して Next ミノを先読みする
         _nextQueue.Clear();
+        _bag.Clear();
         for (int i = 0; i < _nextCount; i++)
-            _nextQueue.Enqueue(UnityEngine.Random.Range(0, TetrisConfig.SHAPES.Length));
+            _nextQueue.Enqueue(NextFromBag());
         OnGameStarted?.Invoke();
         SpawnRandomMino();
     }
@@ -83,12 +87,34 @@ public class TetrisGame
     {
         // キューが空の場合（デバッグ直呼び出し等）は補填
         while (_nextQueue.Count < _nextCount)
-            _nextQueue.Enqueue(UnityEngine.Random.Range(0, TetrisConfig.SHAPES.Length));
+            _nextQueue.Enqueue(NextFromBag());
 
         int spawnIdx = _nextQueue.Dequeue();
-        _nextQueue.Enqueue(UnityEngine.Random.Range(0, TetrisConfig.SHAPES.Length));
+        _nextQueue.Enqueue(NextFromBag());
         _renderer.DrawNextQueue(_nextQueue.ToArray());
         SpawnMino(spawnIdx);
+    }
+
+    /// <summary>
+    /// 7種1順バッグから次のミノインデックスを返す。
+    /// バッグが空になったら全7種をシャッフルして補充する。
+    /// </summary>
+    private int NextFromBag()
+    {
+        if (_bag.Count == 0)
+        {
+            for (int i = 0; i < TetrisConfig.SHAPES.Length; i++)
+                _bag.Add(i);
+            // Fisher-Yatesシャッフル
+            for (int i = _bag.Count - 1; i > 0; i--)
+            {
+                int j = UnityEngine.Random.Range(0, i + 1);
+                (_bag[i], _bag[j]) = (_bag[j], _bag[i]);
+            }
+        }
+        int idx = _bag[_bag.Count - 1];
+        _bag.RemoveAt(_bag.Count - 1);
+        return idx;
     }
 
     /// <summary>指定インデックスのミノを初期回転でフィールド上部に生成する。</summary>
