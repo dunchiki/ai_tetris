@@ -447,4 +447,302 @@ public class TetrisGameTests
 
         Assert.IsFalse(_game.HasMino, "ゲームオーバー後は HasMino が false のはず");
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    // SRS Wall Kick ── T ミノの様々なブロック配置での回転挙動
+    //
+    // T ミノ各回転状態のローカルセル定義（pivot = (1,1)）:
+    //   State 0 (Spawn) : (1,0)(0,1)(1,1)(2,1)  →  .T. / TTT
+    //   State R (CW×1)  : (1,0)(1,1)(2,1)(1,2)  →  .T. / .TT / .T.
+    //   State 2 (CW×2)  : (0,1)(1,1)(2,1)(1,2)  →  TTT / .T.
+    //   State L (CCW×1) : (1,0)(0,1)(1,1)(1,2)  →  .T. / TT. / .T.
+    //
+    // JLSTZ キックテーブル（Y 下向き正）:
+    //   0→R : (0,0)(-1,0)(-1,-1)(0,2)(-1,2)
+    //   R→0 : (0,0)(1,0)(1,1)(0,-2)(1,-2)
+    //   R→2 : (0,0)(1,0)(1,1)(0,-2)(1,-2)
+    //   2→R : (0,0)(-1,0)(-1,-1)(0,2)(-1,2)
+    //   2→L : (0,0)(1,0)(1,-1)(0,2)(1,2)
+    //   L→2 : (0,0)(-1,0)(-1,1)(0,-2)(-1,-2)
+    //   L→0 : (0,0)(-1,0)(-1,1)(0,-2)(-1,-2)
+    //   0→L : (0,0)(1,0)(1,-1)(0,2)(1,2)
+    // ═══════════════════════════════════════════════════════════════
+
+    // ── ヘルパー ─────────────────────────────────────────────────
+
+    /// <summary>_grid[col, row] を true にする。</summary>
+    private void Block(int col, int row) => Get<bool[,]>("_grid")[col, row] = true;
+
+    /// <summary>T ミノを指定状態・位置でセットし、回転前の前提条件を整える。</summary>
+    private void SetupT(Vector2Int[] cells, int rotation, int x, int y)
+    {
+        _game.StartGame();
+        Set("_currentCells",    cells);
+        Set("_currentShapeIdx", 2);
+        Set("_currentRotation", rotation);
+        Set("_currentX", x);
+        Set("_currentY", y);
+    }
+
+    // ── 障害なしの基本回転 ─────────────────────────────────────────
+
+    /// <summary>
+    /// 障害なし・中央配置での CW 回転: キック 1 (0,0) で成功し位置は変わらない。
+    /// </summary>
+    [Test]
+    public void SRS_T_CW_0toR_OpenField_NoPositionChange()
+    {
+        SetupT(TetrisGame.GetCells(2), rotation: 0, x: 3, y: 5);
+
+        _game.RotateMino(true);
+
+        Assert.AreEqual(1, Get<int>("_currentRotation"), "rotation = 1 (state R) になるはず");
+        Assert.AreEqual(3, Get<int>("_currentX"),        "障害なしで x は変わらないはず");
+        Assert.AreEqual(5, Get<int>("_currentY"),        "障害なしで y は変わらないはず");
+    }
+
+    /// <summary>
+    /// CW 4 回転で rotation が 0→1→2→3→0 とサイクルし、元のセルに戻る。
+    /// </summary>
+    [Test]
+    public void SRS_T_CW_FourRotations_CyclesStateAndRestoresCells()
+    {
+        SetupT(TetrisGame.GetCells(2), rotation: 0, x: 3, y: 5);
+
+        _game.RotateMino(true); Assert.AreEqual(1, Get<int>("_currentRotation"), "1 回目: state R");
+        _game.RotateMino(true); Assert.AreEqual(2, Get<int>("_currentRotation"), "2 回目: state 2");
+        _game.RotateMino(true); Assert.AreEqual(3, Get<int>("_currentRotation"), "3 回目: state L");
+        _game.RotateMino(true); Assert.AreEqual(0, Get<int>("_currentRotation"), "4 回目: state 0");
+
+        CollectionAssert.AreEquivalent(
+            TetrisGame.GetCells(2), Get<Vector2Int[]>("_currentCells"),
+            "4 回転でセルが元に戻るはず");
+    }
+
+    /// <summary>
+    /// CCW 1 回転: 0 → state L (rotation=3)。セルが state L になることを確認。
+    /// </summary>
+    [Test]
+    public void SRS_T_CCW_0toL_OpenField_CellsMatchStateL()
+    {
+        SetupT(TetrisGame.GetCells(2), rotation: 0, x: 3, y: 5);
+
+        _game.RotateMino(false);  // CCW: 0 → L
+
+        Assert.AreEqual(3, Get<int>("_currentRotation"), "rotation = 3 (state L) になるはず");
+        var expectedL = new Vector2Int[] { new(1,0), new(0,1), new(1,1), new(1,2) };
+        CollectionAssert.AreEquivalent(expectedL, Get<Vector2Int[]>("_currentCells"),
+            "state L のセルになるはず");
+    }
+
+    // ── 壁キック ──────────────────────────────────────────────────
+
+    /// <summary>
+    /// 0→R CW、キック 2 (dx=-1, dy=0):
+    /// state R の下端セル (4,7) が塞がれているためキック 1 が失敗し、
+    /// 左シフトしたキック 2 で成功する。
+    ///
+    ///   col:  3  4  5     state 0 @ (3,5)    state R @ kick1 (3,5)
+    ///   row 5:    ●        . T .               . T .
+    ///   row 6:    ●        T T T               . T T
+    ///   row 7:    □ ←block                     . T .  ← (4,7) が塞がれて失敗
+    ///
+    ///   kick2(-1,0) → state R @ (2,5): (3,5)(3,6)(4,6)(3,7) — 空き → 成功
+    /// </summary>
+    [Test]
+    public void SRS_T_CW_0toR_Kick2_Dx_Minus1()
+    {
+        SetupT(TetrisGame.GetCells(2), rotation: 0, x: 3, y: 5);
+        Block(4, 7);  // state R @ kick1 の下端セルを塞ぐ
+
+        _game.RotateMino(true);
+
+        Assert.AreEqual(1, Get<int>("_currentRotation"), "state R (rotation=1) になるはず");
+        Assert.AreEqual(2, Get<int>("_currentX"),        "左シフトで x = 2 になるはず");
+        Assert.AreEqual(5, Get<int>("_currentY"),        "y は変わらないはず");
+    }
+
+    /// <summary>
+    /// 0→R CW、キック 3 (dx=-1, dy=-1):
+    /// キック 1・2 が失敗し、左+上シフトのキック 3 で成功する。
+    ///
+    ///   Block (4,7): kick1(0,0) → state R @ (3,5) 失敗
+    ///   Block (3,7): kick2(-1,0) → state R @ (2,5) の (3,7) が塞がれて失敗
+    ///   kick3(-1,-1) → state R @ (2,4): (3,4)(3,5)(4,5)(3,6) — 空き → 成功
+    /// </summary>
+    [Test]
+    public void SRS_T_CW_0toR_Kick3_Dx_Minus1_Dy_Minus1()
+    {
+        SetupT(TetrisGame.GetCells(2), rotation: 0, x: 3, y: 5);
+        Block(4, 7);  // kick1 失敗: state R @ (3,5) の (4,7) を塞ぐ
+        Block(3, 7);  // kick2 失敗: state R @ (2,5) の (3,7) を塞ぐ
+
+        _game.RotateMino(true);
+
+        Assert.AreEqual(1, Get<int>("_currentRotation"), "state R (rotation=1) になるはず");
+        Assert.AreEqual(2, Get<int>("_currentX"),        "左シフト -1 で x = 2 になるはず");
+        Assert.AreEqual(4, Get<int>("_currentY"),        "上シフト -1 で y = 4 になるはず");
+    }
+
+    /// <summary>
+    /// L→0 CW、キック 2 (dx=-1, dy=0) — 右壁による自動キック:
+    /// state L を右端 (x=8) に置くと、回転後の state 0 の右端セルが
+    /// col=10 で右壁外となりキック 1 が失敗する。障害ブロック不要。
+    ///
+    ///   state L @ (8,5): col 8-9 は有効
+    ///   state 0 @ kick1(0,0) @ (8,5): (8+2,5+1)=col 10 → 右壁外 → 失敗
+    ///   kick2(-1,0) → state 0 @ (7,5): (8,5)(7,6)(8,6)(9,6) — 成功
+    /// </summary>
+    [Test]
+    public void SRS_T_CW_LtoO_Kick2_RightWall_NoGridBlock()
+    {
+        // state L のセルを手動設定（x=8 で右壁ぎわ）
+        SetupT(new Vector2Int[] { new(1,0), new(0,1), new(1,1), new(1,2) },
+               rotation: 3, x: 8, y: 5);
+
+        _game.RotateMino(true);  // CW: L → 0
+
+        Assert.AreEqual(0, Get<int>("_currentRotation"), "state 0 (rotation=0) になるはず");
+        Assert.AreEqual(7, Get<int>("_currentX"),        "右壁キックで x = 7 になるはず");
+        Assert.AreEqual(5, Get<int>("_currentY"),        "y は変わらないはず");
+    }
+
+    /// <summary>
+    /// R→0 CCW、キック 2 (dx=+1, dy=0) — 左壁キック:
+    /// state R を左端 (x=0) に置くと、回転後の state 0 の左端セル (col 0+0=0) が
+    /// kick1(0,0) では _grid[0][row] の障害で失敗し、右シフトで成功する。
+    ///
+    ///   state R @ (0,5): (1,5)(1,6)(2,6)(1,7)
+    ///   state 0 @ kick1(0,0) @ (0,5): (1,5)(0,6)(1,6)(2,6)
+    ///     → Block (0,6) で失敗
+    ///   kick2(+1,0) → state 0 @ (1,5): (2,5)(1,6)(2,6)(3,6) — 成功
+    /// </summary>
+    [Test]
+    public void SRS_T_CCW_RtoO_Kick2_LeftWall()
+    {
+        SetupT(new Vector2Int[] { new(1,0), new(1,1), new(2,1), new(1,2) },
+               rotation: 1, x: 0, y: 5);
+        Block(0, 6);  // state 0 @ kick1 の左端セルを塞ぐ
+
+        _game.RotateMino(false);  // CCW: R → 0
+
+        Assert.AreEqual(0, Get<int>("_currentRotation"), "state 0 (rotation=0) になるはず");
+        Assert.AreEqual(1, Get<int>("_currentX"),        "右シフトキックで x = 1 になるはず");
+        Assert.AreEqual(5, Get<int>("_currentY"),        "y は変わらないはず");
+    }
+
+    // ── フロアキック（上方向シフト） ───────────────────────────────
+
+    /// <summary>
+    /// R→2 CW、キック 4 (dx=0, dy=-2) — 上方向フロアキック:
+    /// フィールド底付近で kick1～kick3 が失敗し、上 2 マスシフトで成功する。
+    ///
+    ///   state R @ (3,17): (4,17)(4,18)(5,18)(4,19)
+    ///   state 2 cells: (0,1)(1,1)(2,1)(1,2)
+    ///
+    ///   kick1(0,0)  @ (3,17): (3,18) が Block → 失敗
+    ///   kick2(1,0)  @ (4,17): (6,18) が Block → 失敗
+    ///   kick3(1,1)  @ (4,18): (5,20) が row>=ROWS → 自動失敗
+    ///   kick4(0,-2) @ (3,15): (3,16)(4,16)(5,16)(4,17) — 空き → 成功
+    /// </summary>
+    [Test]
+    public void SRS_T_CW_RtoO2_Kick4_FloorKick_UpShift2()
+    {
+        SetupT(new Vector2Int[] { new(1,0), new(1,1), new(2,1), new(1,2) },
+               rotation: 1, x: 3, y: TetrisConfig.ROWS - 3);  // y=17
+        Block(3, TetrisConfig.ROWS - 2);  // (3,18): kick1 を失敗させる
+        Block(6, TetrisConfig.ROWS - 2);  // (6,18): kick2 を失敗させる
+
+        _game.RotateMino(true);  // CW: R → 2
+
+        Assert.AreEqual(2,                        Get<int>("_currentRotation"), "state 2 になるはず");
+        Assert.AreEqual(3,                        Get<int>("_currentX"),        "x は変わらないはず");
+        Assert.AreEqual(TetrisConfig.ROWS - 5,    Get<int>("_currentY"),        "上 2 マスキックで y = 15 になるはず");
+    }
+
+    /// <summary>
+    /// R→2 CW、キック 5 (dx=+1, dy=-2) — 右+上シフト（T スピン系キック）:
+    /// kick1～kick4 が失敗し、右 1・上 2 マスシフトで成功する。
+    ///
+    ///   state R @ (2,17): (3,17)(3,18)(4,18)(3,19)
+    ///   kick1(0,0)  @ (2,17): (2,18) が Block → 失敗
+    ///   kick2(1,0)  @ (3,17): (5,18) が Block → 失敗
+    ///   kick3(1,1)  @ (3,18): (4,20) が row>=ROWS → 自動失敗
+    ///   kick4(0,-2) @ (2,15): (2,16) が Block → 失敗
+    ///   kick5(1,-2) @ (3,15): (3,16)(4,16)(5,16)(4,17) — 空き → 成功
+    /// </summary>
+    [Test]
+    public void SRS_T_CW_RtoO2_Kick5_RightUpShift()
+    {
+        SetupT(new Vector2Int[] { new(1,0), new(1,1), new(2,1), new(1,2) },
+               rotation: 1, x: 2, y: TetrisConfig.ROWS - 3);  // y=17
+        Block(2, TetrisConfig.ROWS - 2);  // (2,18): kick1 を失敗させる
+        Block(5, TetrisConfig.ROWS - 2);  // (5,18): kick2 を失敗させる
+        Block(2, TetrisConfig.ROWS - 4);  // (2,16): kick4 を失敗させる
+
+        _game.RotateMino(true);  // CW: R → 2
+
+        Assert.AreEqual(2,                     Get<int>("_currentRotation"), "state 2 になるはず");
+        Assert.AreEqual(3,                     Get<int>("_currentX"),        "右 1 マスキックで x = 3 になるはず");
+        Assert.AreEqual(TetrisConfig.ROWS - 5, Get<int>("_currentY"),        "上 2 マスキックで y = 15 になるはず");
+    }
+
+    // ── 全キック失敗 ──────────────────────────────────────────────
+
+    /// <summary>
+    /// 全キック (5 箇所) が失敗するとき回転は発生しない:
+    /// state 0 → R CW で、各キック位置の最小障害ブロックを配置する。
+    ///
+    ///   state 0 @ (3,5) world: (4,5)(3,6)(4,6)(5,6)  ← 開始位置（ブロックなし）
+    ///   kick1(0,0)  @ (3,5): state R の (4,7) を Block → 失敗
+    ///   kick2(-1,0) @ (2,5): state R の (3,7) を Block → 失敗
+    ///   kick3(-1,-1)@ (2,4): state R の (3,4) を Block → 失敗
+    ///   kick4(0,2)  @ (3,7): (4,7) が既にブロック済み → 失敗
+    ///   kick5(-1,2) @ (2,7): (3,7) が既にブロック済み → 失敗
+    /// </summary>
+    [Test]
+    public void SRS_T_CW_0toR_AllKicksFail_RotationNotApplied()
+    {
+        SetupT(TetrisGame.GetCells(2), rotation: 0, x: 3, y: 5);
+        Block(4, 7);  // kick1 & kick4 の共通セル
+        Block(3, 7);  // kick2 & kick5 の共通セル
+        Block(3, 4);  // kick3 専用セル
+
+        _game.RotateMino(true);
+
+        Assert.AreEqual(0, Get<int>("_currentRotation"), "全キック失敗なら rotation は変わらないはず");
+        Assert.AreEqual(3, Get<int>("_currentX"),        "x は変わらないはず");
+        Assert.AreEqual(5, Get<int>("_currentY"),        "y は変わらないはず");
+        CollectionAssert.AreEquivalent(
+            TetrisGame.GetCells(2), Get<Vector2Int[]>("_currentCells"),
+            "セルは変わらないはず");
+    }
+
+    /// <summary>
+    /// フィールド左端 (x=0) に state 0 を配置して全キックが失敗することを確認する。
+    ///
+    /// State R local cells: (1,0)(1,1)(2,1)(1,2) → pivot=(1,1)
+    /// State 0 @ (0,5) world: (1,5)(0,6)(1,6)(2,6)
+    ///
+    /// JLSTZ 0→R キックテーブル: (0,0)(-1,0)(-1,-1)(0,2)(-1,2)
+    ///
+    ///   kick1 (0,0)  → state R @ (0,5):  world (1,5)(1,6)(2,6)(1,7) → Block(1,7) → 失敗
+    ///   kick2 (-1,0) → state R @ (-1,5): world (0,5)(0,6)(1,6)(0,7) → Block(0,7) → 失敗
+    ///   kick3 (-1,-1)→ state R @ (-1,4): world (0,4)(0,5)(1,5)(0,6) → Block(0,6) → 失敗
+    ///   kick4 (0,2)  → state R @ (0,7):  world (1,7)(1,8)(2,8)(1,9) → Block(1,7) → 失敗
+    ///   kick5 (-1,2) → state R @ (-1,7): world (0,7)(0,8)(1,8)(0,9) → Block(0,7) → 失敗
+    /// </summary>
+    [Test]
+    public void SRS_T_CW_0toR_AllKicksFail_LeftWallFully_Blocked()
+    {
+        SetupT(TetrisGame.GetCells(2), rotation: 0, x: 0, y: 5);
+        Block(1, 7);  // kick1(0,0) と kick4(0,2) を失敗させる
+        Block(0, 7);  // kick2(-1,0) と kick5(-1,2) を失敗させる
+        Block(0, 6);  // kick3(-1,-1) を失敗させる (state R @ (-1,4) の (0,6))
+
+        _game.RotateMino(true);
+
+        Assert.AreEqual(0, Get<int>("_currentRotation"), "左壁ぎわ全キック失敗で rotation は変わらないはず");
+        Assert.AreEqual(0, Get<int>("_currentX"),        "x は変わらないはず");
+    }
 }
