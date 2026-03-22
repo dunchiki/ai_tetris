@@ -166,8 +166,11 @@ public class TetrisGameTests
         for (int i = 0; i < TetrisConfig.COLS; i++)
             _game.MoveMino(1, 0);
 
-        int x          = Get<int>("_currentX");
-        int shapeWidth = Get<int[,]>("_currentShape").GetLength(1);
+        int x = Get<int>("_currentX");
+        var cells = Get<Vector2Int[]>("_currentCells");
+        int maxCellX = 0;
+        foreach (var c in cells) if (c.x > maxCellX) maxCellX = c.x;
+        int shapeWidth = maxCellX + 1;
         Assert.LessOrEqual(x + shapeWidth, TetrisConfig.COLS, "ミノは右端より外に出てはいけない");
     }
 
@@ -180,15 +183,19 @@ public class TetrisGameTests
     {
         _game.StartGame();
 
-        // T ミノ（2 行 × 3 列）を強制設定
-        Set("_currentShape", new int[,] { { 0, 1, 0 }, { 1, 1, 1 } });
+        // T ミノ（index=2）をセル座標配列で強制設定
+        Set("_currentCells", TetrisGame.GetCells(2));
+        Set("_currentShapeIdx", 2);
 
         _game.RotateMino(true);  // 時計回り
 
-        // 90° 回転後は 3 行 × 2 列になるはず
-        var shape = Get<int[,]>("_currentShape");
-        Assert.AreEqual(3, shape.GetLength(0), "時計回り後: 行数は 3 のはず");
-        Assert.AreEqual(2, shape.GetLength(1), "時計回り後: 列数は 2 のはず");
+        // 90° 回転後のセル境界ボックスは高さ 3 × 幅 3
+        // (SRS state R: cells at x=1,2 y=0,1,2 → max x=2 → width=3)
+        var cells = Get<Vector2Int[]>("_currentCells");
+        int height = 0, width = 0;
+        foreach (var c in cells) { if (c.y + 1 > height) height = c.y + 1; if (c.x + 1 > width) width = c.x + 1; }
+        Assert.AreEqual(3, height, "時計回り後: 高さは 3 のはず");
+        Assert.AreEqual(3, width,  "時計回り後: 幅は 3 のはず");
     }
 
     [Test]
@@ -196,15 +203,18 @@ public class TetrisGameTests
     {
         _game.StartGame();
 
-        // T ミノ（2 行 × 3 列）を強制設定
-        Set("_currentShape", new int[,] { { 0, 1, 0 }, { 1, 1, 1 } });
+        // T ミノ（index=2）をセル座標配列で強制設定
+        Set("_currentCells", TetrisGame.GetCells(2));
+        Set("_currentShapeIdx", 2);
 
         _game.RotateMino(false);  // 反時計回り
 
-        // 90° 回転後は 3 行 × 2 列になるはず
-        var shape = Get<int[,]>("_currentShape");
-        Assert.AreEqual(3, shape.GetLength(0), "反時計回り後: 行数は 3 のはず");
-        Assert.AreEqual(2, shape.GetLength(1), "反時計回り後: 列数は 2 のはず");
+        // 90° 回転後のセル境界ボックスは高さ 3 × 幅 2
+        var cells = Get<Vector2Int[]>("_currentCells");
+        int height = 0, width = 0;
+        foreach (var c in cells) { if (c.y + 1 > height) height = c.y + 1; if (c.x + 1 > width) width = c.x + 1; }
+        Assert.AreEqual(3, height, "反時計回り後: 高さは 3 のはず");
+        Assert.AreEqual(2, width,  "反時計回り後: 幅は 2 のはず");
     }
 
     [Test]
@@ -212,16 +222,19 @@ public class TetrisGameTests
     {
         _game.StartGame();
 
-        // T ミノ（2 行 × 3 列）を強制設定して 4 回時計回り回転
-        var original = new int[,] { { 0, 1, 0 }, { 1, 1, 1 } };
-        Set("_currentShape", original);
+        // T ミノ（index=2）をセル座標配列で強制設定して 4 回時計回り回転
+        Set("_currentCells", TetrisGame.GetCells(2));
+        Set("_currentShapeIdx", 2);
 
         for (int i = 0; i < 4; i++)
             _game.RotateMino(true);
 
-        var shape = Get<int[,]>("_currentShape");
-        Assert.AreEqual(original.GetLength(0), shape.GetLength(0), "4 回転後: 行数が元に戻るはず");
-        Assert.AreEqual(original.GetLength(1), shape.GetLength(1), "4 回転後: 列数が元に戻るはず");
+        // 4 回転後のセル境界ボックスは元の T ミノ（高さ 2、幅 3）
+        var cells = Get<Vector2Int[]>("_currentCells");
+        int height = 0, width = 0;
+        foreach (var c in cells) { if (c.y + 1 > height) height = c.y + 1; if (c.x + 1 > width) width = c.x + 1; }
+        Assert.AreEqual(2, height, "4 回転後: 高さが元に戻るはず");
+        Assert.AreEqual(3, width,  "4 回転後: 幅が元に戻るはず");
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -233,8 +246,8 @@ public class TetrisGameTests
     {
         _game.StartGame();
 
-        // 1×1 ブロックを列 5 に配置して落とす
-        Set("_currentShape", new int[,] { { 1 } });
+        // 1×1 セルを列 5 に配置して落とす
+        Set("_currentCells", new Vector2Int[] { Vector2Int.zero });
         Set("_currentX", 5);
         Set("_currentY", 0);
 
@@ -359,8 +372,8 @@ public class TetrisGameTests
         for (int col = 0; col < TetrisConfig.COLS - 1; col++)
             grid[col, TetrisConfig.ROWS - 1] = true;
 
-        // 残り 1 マス（列 COLS-1）を 1×1 ミノで埋めて固定 → 行消去を発動
-        Set("_currentShape", new int[,] { { 1 } });
+        // 残り 1 マス（列 COLS-1）を 1×1 セルで埋めて固定 → 行消去を発動
+        Set("_currentCells", new Vector2Int[] { Vector2Int.zero });
         Set("_currentX", TetrisConfig.COLS - 1);
         Set("_currentY", TetrisConfig.ROWS - 1);
 
@@ -387,7 +400,7 @@ public class TetrisGameTests
         grid[0, TetrisConfig.ROWS - 2] = true;
 
         // 最下行を完成させて行消去
-        Set("_currentShape", new int[,] { { 1 } });
+        Set("_currentCells", new Vector2Int[] { Vector2Int.zero });
         Set("_currentX", TetrisConfig.COLS - 1);
         Set("_currentY", TetrisConfig.ROWS - 1);
 
