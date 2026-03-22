@@ -25,7 +25,8 @@ public class GameFieldController : MonoBehaviour
 
     private void Start()
     {
-        _renderer       = new TetrisRenderer(transform);
+        var holdArea    = GameObject.Find("HoldArea")?.transform;
+        _renderer       = new TetrisRenderer(transform, holdArea);
         _game           = new TetrisGame(_renderer, fallInterval, lockDelay);
         _gameStartPanel = GameObject.Find("GameStartPanel");
 
@@ -51,6 +52,7 @@ public class GameFieldController : MonoBehaviour
         if (Input.GetKeyDown(KeyCode.W)) _game.HardDrop();
         if (Input.GetKeyDown(KeyCode.Q)) _game.RotateMino(clockwise: false);
         if (Input.GetKeyDown(KeyCode.E)) _game.RotateMino(clockwise: true);
+        if (Input.GetKeyDown(KeyCode.H)) _game.HoldMino();
 
         HandleDAS(KeyCode.A, -1, 0, ref _dasLeft);
         HandleDAS(KeyCode.D,  1, 0, ref _dasRight);

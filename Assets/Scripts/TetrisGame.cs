@@ -27,6 +27,11 @@ public class TetrisGame
     private int[,] _currentShape;
     private Color  _currentColor;
     private int    _currentX, _currentY;
+    private int    _currentShapeIdx;
+
+    // ── Hold ─────────────────────────────────────────────────────
+    private int  _holdShapeIdx = -1;  // -1 = 空
+    private bool _holdUsed;           // true = 今ターン使用済み
 
     // ── ゲーム状態 ────────────────────────────────────────────────
     private bool  _isPlaying;
@@ -52,10 +57,13 @@ public class TetrisGame
     public void StartGame()
     {
         ClearGrid();
-        _isPlaying = true;
-        _fallTimer = 0f;
-        _isLocking = false;
-        _lockTimer = 0f;
+        _isPlaying    = true;
+        _fallTimer    = 0f;
+        _isLocking    = false;
+        _lockTimer    = 0f;
+        _holdShapeIdx = -1;
+        _holdUsed     = false;
+        _renderer.ClearHold();
         OnGameStarted?.Invoke();
         SpawnRandomMino();
     }
@@ -63,18 +71,45 @@ public class TetrisGame
     /// <summary>ランダムなミノをフィールド上部に生成する。配置不可ならゲームオーバー。</summary>
     public void SpawnRandomMino()
     {
-        int idx    = UnityEngine.Random.Range(0, TetrisConfig.SHAPES.Length);
-        int[,] sh  = TetrisConfig.SHAPES[idx];
+        SpawnMino(UnityEngine.Random.Range(0, TetrisConfig.SHAPES.Length));
+    }
+
+    /// <summary>指定インデックスのミノを初期回転でフィールド上部に生成する。</summary>
+    private void SpawnMino(int shapeIdx)
+    {
+        int[,] sh  = TetrisConfig.SHAPES[shapeIdx];
         int spawnX = (TetrisConfig.COLS - sh.GetLength(1)) / 2;
         if (_isPlaying && !IsValidPosition(sh, spawnX, 0))
         {
             GameOver();
             return;
         }
-        PlaceMino(sh, TetrisConfig.COLORS[idx]);
+        _currentShapeIdx = shapeIdx;
+        PlaceMino(sh, TetrisConfig.COLORS[shapeIdx]);
         _isLocking = false;
         _lockTimer = 0f;
         _fallTimer = 0f;
+    }
+
+    /// <summary>現在のミノを Hold する、または Hold 内のミノと入れ替える。(H キー)</summary>
+    public void HoldMino()
+    {
+        if (_currentShape == null || _holdUsed) return;
+
+        int prevHoldIdx = _holdShapeIdx;
+        _holdShapeIdx   = _currentShapeIdx;
+        _holdUsed       = true;
+
+        // Hold 表示を更新
+        _renderer.DrawHold(TetrisConfig.SHAPES[_holdShapeIdx], TetrisConfig.COLORS[_holdShapeIdx]);
+        _renderer.ClearMino();
+        _currentShape = null;
+
+        // Hold が空だった → 新ミノを生成、そうでなければ Hold からミノを取り出す
+        if (prevHoldIdx < 0)
+            SpawnRandomMino();
+        else
+            SpawnMino(prevHoldIdx);
     }
 
     /// <summary>操作中ミノを移動する。dx: 横変位, dy: 縦変位（下が正）</summary>
@@ -202,6 +237,7 @@ public class TetrisGame
         _isLocking    = false;
         _lockTimer    = 0f;
         _fallTimer    = 0f;
+        _holdUsed     = false;   // ロック完了で Hold 再使用可能に
 
         ClearLines();
         if (_isPlaying) SpawnRandomMino();

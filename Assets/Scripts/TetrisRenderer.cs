@@ -17,7 +17,16 @@ public class TetrisRenderer
     // 現在操作中ミノの Image リスト
     private readonly List<Image> _minoImages = new List<Image>();
 
-    public TetrisRenderer(Transform fieldTransform) => _field = fieldTransform;
+    // Hold 表示用 Image リスト
+    private readonly List<Image> _holdImages = new List<Image>();
+
+    private readonly Transform _holdArea;
+
+    public TetrisRenderer(Transform fieldTransform, Transform holdArea)
+    {
+        _field    = fieldTransform;
+        _holdArea = holdArea;
+    }
 
     // ── ミノ描画 ──────────────────────────────────────────────────
 
@@ -68,10 +77,11 @@ public class TetrisRenderer
             = FieldToLocalPos(col, toRow);
     }
 
-    /// <summary>全ての Image (ミノ・グリッド) を破棄する。</summary>
+    /// <summary>全ての Image (ミノ・グリッド・Hold) を破棄する。</summary>
     public void ClearAll()
     {
         ClearMino();
+        ClearHold();
         for (int col = 0; col < TetrisConfig.COLS; col++)
             for (int row = 0; row < TetrisConfig.ROWS; row++)
                 RemoveBlock(col, row);
@@ -100,5 +110,46 @@ public class TetrisRenderer
         float ox = -(TetrisConfig.COLS * TetrisConfig.CELL_SIZE) * 0.5f + TetrisConfig.CELL_SIZE * 0.5f;
         float oy =  (TetrisConfig.ROWS * TetrisConfig.CELL_SIZE) * 0.5f - TetrisConfig.CELL_SIZE * 0.5f;
         return new Vector2(ox + col * TetrisConfig.CELL_SIZE, oy - row * TetrisConfig.CELL_SIZE);
+    }
+
+    // ── Hold 表示 ──────────────────────────────────────────────────
+
+    /// <summary>Hold ミノを HoldArea 中央に描画する。</summary>
+    public void DrawHold(int[,] shape, Color color)
+    {
+        ClearHold();
+        if (_holdArea == null) return;
+        int rows = shape.GetLength(0), cols = shape.GetLength(1);
+        // HoldArea 中央揃えのオフセット
+        float ox = -(cols * TetrisConfig.CELL_SIZE) * 0.5f + TetrisConfig.CELL_SIZE * 0.5f;
+        float oy =  (rows * TetrisConfig.CELL_SIZE) * 0.5f - TetrisConfig.CELL_SIZE * 0.5f;
+        for (int r = 0; r < rows; r++)
+            for (int c = 0; c < cols; c++)
+                if (shape[r, c] == 1)
+                    _holdImages.Add(CreateHoldImage(c, r, ox, oy, color));
+    }
+
+    /// <summary>Hold 表示を消去する。</summary>
+    public void ClearHold()
+    {
+        foreach (var img in _holdImages)
+            if (img != null) Object.Destroy(img.gameObject);
+        _holdImages.Clear();
+    }
+
+    private Image CreateHoldImage(int col, int row, float ox, float oy, Color color)
+    {
+        var go = new GameObject($"Hold_{col}_{row}");
+        go.transform.SetParent(_holdArea, false);
+
+        var rt = go.AddComponent<RectTransform>();
+        rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
+        rt.sizeDelta = new Vector2(TetrisConfig.CELL_SIZE - 1f, TetrisConfig.CELL_SIZE - 1f);
+        rt.anchoredPosition = new Vector2(ox + col * TetrisConfig.CELL_SIZE,
+                                          oy - row * TetrisConfig.CELL_SIZE);
+
+        var img = go.AddComponent<Image>();
+        img.color = color;
+        return img;
     }
 }
