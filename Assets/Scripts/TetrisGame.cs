@@ -150,6 +150,7 @@ public class TetrisGame
         // Hold 表示を更新
         _renderer.DrawHold(GetCells(_holdShapeIdx), TetrisConfig.COLORS[_holdShapeIdx]);
         _renderer.ClearMino();
+        _renderer.ClearGhost();
         _currentCells = null;
 
         // Hold が空だった → 新ミノを生成、そうでなければ Hold からミノを取り出す
@@ -168,7 +169,7 @@ public class TetrisGame
         {
             _currentX = nx;
             _currentY = ny;
-            _renderer.DrawMino(_currentCells, _currentColor, _currentX, _currentY);
+            RenderCurrentMino();
             // ソフトドロップ: 落下タイマーリセット
             if (dy > 0) _fallTimer = 0f;
             // 横移動で接地が解消された場合はロックタイマーリセット
@@ -209,7 +210,7 @@ public class TetrisGame
             _currentCells    = rotated;
             _currentX        = nx;
             _currentY        = ny;
-            _renderer.DrawMino(_currentCells, _currentColor, _currentX, _currentY);
+            RenderCurrentMino();
             // 回転で接地が解消された場合はロックタイマーリセット
             if (_isLocking && IsValidPosition(_currentCells, _currentX, _currentY + 1))
             {
@@ -227,7 +228,7 @@ public class TetrisGame
         if (_currentCells == null) return;
         while (IsValidPosition(_currentCells, _currentX, _currentY + 1))
             _currentY++;
-        _renderer.DrawMino(_currentCells, _currentColor, _currentX, _currentY);
+        RenderCurrentMino();
         LockMinoInternal();
     }
 
@@ -266,7 +267,7 @@ public class TetrisGame
         foreach (var c in cells) width = Mathf.Max(width, c.x + 1);
         _currentX = (TetrisConfig.COLS - width) / 2;
         _currentY = 0;
-        _renderer.DrawMino(_currentCells, _currentColor, _currentX, _currentY);
+        RenderCurrentMino();
     }
 
     // 1ステップ自動落下。接地したら固定待ちを開始する。
@@ -276,7 +277,7 @@ public class TetrisGame
         if (IsValidPosition(_currentCells, _currentX, _currentY + 1))
         {
             _currentY++;
-            _renderer.DrawMino(_currentCells, _currentColor, _currentX, _currentY);
+            RenderCurrentMino();
         }
         else
         {
@@ -297,6 +298,7 @@ public class TetrisGame
         }
 
         _renderer.ClearMino();
+        _renderer.ClearGhost();
         _currentCells = null;
         _isLocking    = false;
         _lockTimer    = 0f;
@@ -345,6 +347,7 @@ public class TetrisGame
         _isPlaying    = false;
         _currentCells = null;
         _renderer.ClearMino();
+        _renderer.ClearGhost();
         OnGameOver?.Invoke();
     }
 
@@ -367,6 +370,22 @@ public class TetrisGame
             if (_grid[fx, fy]) return false;
         }
         return true;
+    }
+
+    private void RenderCurrentMino()
+    {
+        if (_currentCells == null) return;
+        int ghostY = GetGhostY();
+        _renderer.DrawGhost(_currentCells, _currentColor, _currentX, ghostY);
+        _renderer.DrawMino(_currentCells, _currentColor, _currentX, _currentY);
+    }
+
+    private int GetGhostY()
+    {
+        int y = _currentY;
+        while (IsValidPosition(_currentCells, _currentX, y + 1))
+            y++;
+        return y;
     }
 
     /// <summary>

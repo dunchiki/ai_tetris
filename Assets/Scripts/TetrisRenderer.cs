@@ -16,6 +16,8 @@ public class TetrisRenderer
 
     // 現在操作中ミノの Image リスト
     private readonly List<Image> _minoImages = new List<Image>();
+    // 落下予測地点（ゴースト）表示用 Image リスト
+    private readonly List<Image> _ghostImages = new List<Image>();
 
     // Hold 表示用 Image リスト
     private readonly List<Image> _holdImages = new List<Image>();
@@ -46,12 +48,30 @@ public class TetrisRenderer
             _minoImages.Add(CreateImage(posX + c.x, posY + c.y, color));
     }
 
+    /// <summary>落下予測地点（ゴースト）を半透明で再描画する。</summary>
+    public void DrawGhost(Vector2Int[] cells, Color color, int posX, int posY)
+    {
+        ClearGhost();
+        var ghostColor = color;
+        ghostColor.a = 0.3f;
+        foreach (var c in cells)
+            _ghostImages.Add(CreateImage(posX + c.x, posY + c.y, ghostColor));
+    }
+
     /// <summary>操作中ミノの Image を全て破棄する。</summary>
     public void ClearMino()
     {
         foreach (var img in _minoImages)
             if (img != null) DestroyObject(img.gameObject);
         _minoImages.Clear();
+    }
+
+    /// <summary>ゴースト表示の Image を全て破棄する。</summary>
+    public void ClearGhost()
+    {
+        foreach (var img in _ghostImages)
+            if (img != null) DestroyObject(img.gameObject);
+        _ghostImages.Clear();
     }
 
     // ── グリッドブロック操作 ───────────────────────────────────────
@@ -85,6 +105,7 @@ public class TetrisRenderer
     /// <summary>全ての Image (ミノ・グリッド・Hold・Next) を破棄する。</summary>
     public void ClearAll()
     {
+        ClearGhost();
         ClearMino();
         ClearHold();
         ClearNext();
